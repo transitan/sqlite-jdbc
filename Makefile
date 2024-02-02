@@ -34,8 +34,7 @@ $(SQLITE_ARCHIVE):
 	curl -L -f -o$@ https://github.com/utelle/SQLite3MultipleCiphers/releases/download/v1.8.3/sqlite3mc-1.8.3-sqlite-3.45.1-amalgamation.zip
 
 $(SQLITE_UNPACKED): $(SQLITE_ARCHIVE)
-	unzip -qo $< -d $(TARGET)/tmp.$(version)
-	(mv $(TARGET)/tmp.$(version)/$(SQLITE_AMAL_PREFIX) $(TARGET) && rmdir $(TARGET)/tmp.$(version)) || mv $(TARGET)/tmp.$(version)/ $(TARGET)/$(SQLITE_AMAL_PREFIX)
+	unzip -qo $< -d $(TARGET)/$(SQLITE_AMAL_PREFIX)
 	touch $@
 
 $(JAVA_CLASSPATH):
