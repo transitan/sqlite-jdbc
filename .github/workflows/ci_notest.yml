@@ -1,0 +1,90 @@
+name: CI_NoTests
+
+on:
+  workflow_dispatch:
+    inputs:
+      perform_release:
+        description: 'Perform release'
+        default: false
+        type: boolean
+      push_maven:
+        description: 'Push to maven Central'
+        default: true
+        type: boolean
+  pull_request:
+    paths:
+      - '**.java'
+      - '**.xml'
+      - '**.so'
+      - '**.dylib'
+      - '**.dll'
+      - '.github/workflows/*.yml'
+  push:
+    branches-ignore:
+      - 'dependabot/**'
+    paths:
+      - '**.java'
+      - '**.xml'
+      - '**.so'
+      - '**.dylib'
+      - '**.dll'
+      - '.github/workflows/*.yml'
+
+jobs:
+ release:
+    name: Deploy
+    if: github.repository_owner == 'transitan' && github.ref == 'refs/heads/master' # only perform on latest master
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print inputs
+        run: |
+          echo "Perform release: ${{ inputs.perform_release }}"
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push' || inputs.perform_release != true
+      # when performing a release we need the full git history to generate the changelog
+      - uses: actions/checkout@v4
+        if: inputs.perform_release
+        with:
+          fetch-depth: 0
+          
+      - name: Get Project Version
+        run: |
+          echo "PROJECT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)" | tee -a $GITHUB_ENV
+      - name: Cancel action for non SNAPSHOT push
+        if: github.event_name == 'push' && !endsWith(env.PROJECT_VERSION, '-SNAPSHOT')
+        uses: andymckay/cancel-action@0.3
+      # from that point, if inputs.perform_release is true we perform a release, else we deploy snapshot
+      - name: Prepare release
+        if: inputs.perform_release
+        run: |
+          mvn --no-transfer-progress versions:set -DremoveSnapshot -DgenerateBackupPoms=false
+          RELEASE_VERSION=`mvn help:evaluate -Dexpression=project.version -q -DforceStdout`
+          echo "RELEASE_VERSION=${RELEASE_VERSION}" | tee -a $GITHUB_ENV
+          sed -i -e "s/^\:project-version\:\ .*/:project-version: ${RELEASE_VERSION}/g" README.adoc
+
+      - name: Build
+        run: mvn --batch-mode --no-transfer-progress package -P release -DskipTests
+
+      - name: Release commit and push
+        if: inputs.perform_release
+        uses: EndBug/add-and-commit@v9
+        with:
+          message: 'chore(release): ${{ env.RELEASE_VERSION }} [skip ci]'
+          tag: '${{ env.RELEASE_VERSION }} --force'
+          default_author: github_actions
+      - name: Create Github release with JReleaser
+        if: inputs.perform_release
+        env:
+          JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mvn --batch-mode --no-transfer-progress -DskipTests jreleaser:full-release
+      - name: Prepare next snapshot
+        if: inputs.perform_release
+        run: |
+          mvn versions:set -DnextSnapshot -DgenerateBackupPoms=false
+      - name: Next snapshot commit and push
+        if: inputs.perform_release
+        uses: EndBug/add-and-commit@v9
+        with:
+          message: 'chore(release): prepare next snapshot [skip ci]'
+          default_author: github_actions
